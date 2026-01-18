@@ -1,7 +1,102 @@
 # meta developer: @tyn_mods
 # FILENAME: GeminiCoder.py
 
+import io
+import re
+import time
+import google.generativeai as genai
+
 from .. import loader, utils
+
+
+STRICT_HEROKU_PROMPT = """
+YOU ARE GENERATING A MODULE FOR THE HEROKU USERBOT (coddrago fork).
+
+THIS IS NOT HIKKA, NOT FTG, NOT TELETHON RAW.
+ONLY USE HEROKU-SUPPORTED SYNTAX.
+
+================= ABSOLUTE RULES =================
+
+1. OUTPUT ONLY VALID PYTHON CODE.
+2. DO NOT USE MARKDOWN.
+3. DO NOT ADD EXPLANATIONS.
+4. DO NOT ADD TEXT OUTSIDE CODE.
+5. FIRST LINE MUST BE:
+   # meta developer: @username
+
+================= ALLOWED IMPORTS =================
+
+from .. import loader, utils
+
+NO OTHER IMPORTS FOR HEROKU LOGIC.
+
+================= MODULE STRUCTURE =================
+
+@loader.tds
+class MyModule(loader.Module):
+    strings = {"name": "ModuleName"}
+
+    async def client_ready(self, client, db):
+        self.client = client
+
+================= COMMAND SYNTAX =================
+
+@loader.unrestricted
+async def testcmd(self, message):
+    \"\"\"Описание команды\"\"\"
+    await utils.answer(message, "text")
+
+COMMAND NAME RULES:
+- command must end with `cmd`
+- command is called as `.test`
+
+================= MESSAGE HANDLING =================
+
+✔ CORRECT:
+await utils.answer(message, "text")
+
+✘ INCORRECT:
+message.reply()
+message.edit()
+client.send_message()
+
+================= CONFIG =================
+
+self.config = loader.ModuleConfig(
+    loader.ConfigValue(
+        "param",
+        "default",
+        "description"
+    )
+)
+
+================= FILE NAMING =================
+
+YOU MUST INCLUDE A LINE:
+# FILENAME: module_name.py
+
+================= EXAMPLES =================
+
+EXAMPLE 1:
+
+# meta developer: @tyn_mods
+# FILENAME: hello.py
+
+from .. import loader, utils
+
+@loader.tds
+class HelloMod(loader.Module):
+    strings = {"name": "Hello"}
+
+    @loader.unrestricted
+    async def hellocmd(self, message):
+        await utils.answer(message, "Hello world")
+
+================= FINAL REQUIREMENT =================
+
+RETURN ONLY PYTHON CODE.
+NO EXTRA TEXT.
+"""
 
 
 @loader.tds
@@ -15,8 +110,6 @@ class GeminiCoderMod(loader.Module):
         "thinking": "🧠 Gemini пишет код...",
         "no_last": "❌ Нет предыдущего файла для фикса",
         "fix_no_args": "❌ Укажи, что нужно исправить",
-        
-        # Сообщение при установке модуля
         "install_msg": (
             "💎 <b>GeminiCoder успешно установлен!</b>\n\n"
             "Поддержи разработчика подпиской:\n"
@@ -51,20 +144,17 @@ class GeminiCoderMod(loader.Module):
 
     async def client_ready(self, client, db):
         self.client = client
-        
-        # Показываем сообщение только один раз при первой установке/запуске
-        if not db.get(main.__name__, "shown_install_msg", False):
+
+        # Показываем сообщение подписки только один раз
+        if not db.get("GeminiCoder", "install_msg_shown", False):
             try:
-                await self.client.send_message(
+                await client.send_message(
                     "me",
                     self.strings("install_msg")
                 )
-                db.set(main.__name__, "shown_install_msg", True)
+                db.set("GeminiCoder", "install_msg_shown", True)
             except Exception:
-                pass  # если вдруг не получится отправить в избранное — просто тихо пропустим
-
-
-    # ---------- GENERATE ----------
+                pass  # Если не получилось отправить — просто пропускаем
 
     @loader.unrestricted
     async def gemmodcmd(self, message):
@@ -82,9 +172,7 @@ class GeminiCoderMod(loader.Module):
         model = genai.GenerativeModel(self.config["model"])
 
         response = await model.generate_content_async(
-            STRICT_HEROKU_PROMPT
-            + "\n\nUSER TASK:\n"
-            + prompt,
+            STRICT_HEROKU_PROMPT + "\n\nUSER TASK:\n" + prompt,
             generation_config={"temperature": self.config["temperature"]}
         )
 
@@ -108,8 +196,6 @@ class GeminiCoderMod(loader.Module):
             caption=f"💎 <b>Gemini Module</b>\n📄 <code>{filename}</code>"
         )
 
-    # ---------- FIX ----------
-
     @loader.unrestricted
     async def gemfixcmd(self, message):
         """<что исправить> — исправить последний модуль"""
@@ -127,12 +213,9 @@ class GeminiCoderMod(loader.Module):
 
         response = await model.generate_content_async(
             STRICT_HEROKU_PROMPT
-            + "\n\nORIGINAL TASK:\n"
-            + self._last_prompt
-            + "\n\nFIX REQUEST:\n"
-            + fix_text
-            + "\n\nCURRENT CODE:\n"
-            + self._last_code,
+            + "\n\nORIGINAL TASK:\n" + (self._last_prompt or "неизвестно")
+            + "\n\nFIX REQUEST:\n" + fix_text
+            + "\n\nCURRENT CODE:\n" + self._last_code,
             generation_config={"temperature": self.config["temperature"]}
         )
 
@@ -143,7 +226,7 @@ class GeminiCoderMod(loader.Module):
         self._last_code = new_code
 
         file = io.BytesIO(new_code.encode("utf-8"))
-        file.name = self._last_filename
+        file.name = self._last_filename or f"fixed_module_{int(time.time())}.py"
 
         await self.client.send_file(
             message.peer_id,
