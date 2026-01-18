@@ -1,118 +1,7 @@
 # meta developer: @tyn_mods
-# scope: gemini_generator
-# requires: google-generativeai
-
-import io
-import re
-import time
-import google.generativeai as genai
+# FILENAME: GeminiCoder.py
 
 from .. import loader, utils
-
-
-STRICT_HEROKU_PROMPT = """
-YOU ARE GENERATING A MODULE FOR THE HEROKU USERBOT (coddrago fork).
-
-THIS IS NOT HIKKA, NOT FTG, NOT TELETHON RAW.
-ONLY USE HEROKU-SUPPORTED SYNTAX.
-
-================= ABSOLUTE RULES =================
-
-1. OUTPUT ONLY VALID PYTHON CODE.
-2. DO NOT USE MARKDOWN.
-3. DO NOT ADD EXPLANATIONS.
-4. DO NOT ADD TEXT OUTSIDE CODE.
-5. FIRST LINE MUST BE:
-   # meta developer: @username
-
-================= ALLOWED IMPORTS =================
-
-from .. import loader, utils
-
-NO OTHER IMPORTS FOR HEROKU LOGIC.
-
-================= MODULE STRUCTURE =================
-
-@loader.tds
-class MyModule(loader.Module):
-    strings = {"name": "ModuleName"}
-
-    async def client_ready(self, client, db):
-        self.client = client
-
-================= COMMAND SYNTAX =================
-
-@loader.unrestricted
-async def testcmd(self, message):
-    \"\"\"Описание команды\"\"\"
-    await utils.answer(message, "text")
-
-COMMAND NAME RULES:
-- command must end with `cmd`
-- command is called as `.test`
-
-================= MESSAGE HANDLING =================
-
-✔ CORRECT:
-await utils.answer(message, "text")
-
-✘ INCORRECT:
-message.reply()
-message.edit()
-client.send_message()
-
-================= CONFIG =================
-
-self.config = loader.ModuleConfig(
-    loader.ConfigValue(
-        "param",
-        "default",
-        "description"
-    )
-)
-
-================= FILE NAMING =================
-
-YOU MUST INCLUDE A LINE:
-# FILENAME: module_name.py
-
-================= EXAMPLES =================
-
-EXAMPLE 1:
-
-# meta developer: @tyn_mods
-# FILENAME: hello.py
-
-from .. import loader, utils
-
-@loader.tds
-class HelloMod(loader.Module):
-    strings = {"name": "Hello"}
-
-    @loader.unrestricted
-    async def hellocmd(self, message):
-        await utils.answer(message, "Hello world")
-
-EXAMPLE 2:
-
-# meta developer: @tyn_mods
-# FILENAME: ping.py
-
-from .. import loader, utils
-
-@loader.tds
-class PingMod(loader.Module):
-    strings = {"name": "Ping"}
-
-    @loader.unrestricted
-    async def pingcmd(self, message):
-        await utils.answer(message, "Pong")
-
-================= FINAL REQUIREMENT =================
-
-RETURN ONLY PYTHON CODE.
-NO EXTRA TEXT.
-"""
 
 
 @loader.tds
@@ -126,6 +15,14 @@ class GeminiCoderMod(loader.Module):
         "thinking": "🧠 Gemini пишет код...",
         "no_last": "❌ Нет предыдущего файла для фикса",
         "fix_no_args": "❌ Укажи, что нужно исправить",
+        
+        # Сообщение при установке модуля
+        "install_msg": (
+            "💎 <b>GeminiCoder успешно установлен!</b>\n\n"
+            "Поддержи разработчика подпиской:\n"
+            "➤ @tyn_mods\n\n"
+            "Спасибо за использование ♥"
+        )
     }
 
     def __init__(self):
@@ -154,6 +51,18 @@ class GeminiCoderMod(loader.Module):
 
     async def client_ready(self, client, db):
         self.client = client
+        
+        # Показываем сообщение только один раз при первой установке/запуске
+        if not db.get(main.__name__, "shown_install_msg", False):
+            try:
+                await self.client.send_message(
+                    "me",
+                    self.strings("install_msg")
+                )
+                db.set(main.__name__, "shown_install_msg", True)
+            except Exception:
+                pass  # если вдруг не получится отправить в избранное — просто тихо пропустим
+
 
     # ---------- GENERATE ----------
 
